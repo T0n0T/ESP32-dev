@@ -1,6 +1,16 @@
 from machine import Pin, SPI
 
-cs = Pin(5, Pin.OUT, value=1)
+
+def print_bytes_hex(data):
+    lin = ['0x%02X' % i for i in data]
+    print(" ".join(lin))
+
+
+POR = Pin(33, Pin.OUT, value=0)
+GINT0 = Pin(14, Pin.OUT, value=1)
+GINT1 = Pin(32, Pin.IN)
+CS = Pin(5, Pin.OUT, value=1)
+
 vspi = SPI(
     2,
     baudrate=1000000,
@@ -12,14 +22,27 @@ vspi = SPI(
     mosi=Pin(23),
     miso=Pin(19),
 )
-# data = bytearray([0x33, 0x10, 0x02, 0x53, 0x00, 0x00, 0x00, 0x50, 0x80,
-#                  0x30, 0x00, 0x00, 0x55, 0x55, 0x55, 0x55, 0x01, 0x33, 0x02, 0x55])
-data = bytearray([0x55, 0x02, 0x33, 0x01, 0x55, 0x55, 0x55, 0x55, 0x00,
-                 0x00, 0x30, 0x80, 0x50, 0x00, 0x00, 0x00, 0x53, 0x02, 0x10, 0x33])
-buf = bytearray(20)
-cs.on()
-cs.off()
-vspi.write_readinto(data, buf)
-cs.on()
-print(buf)
+POR.on()
 
+send_buf = bytearray([0x55, 0x02, 0x10, 0x33,
+                      0x50, 0x00, 0x00, 0x00,
+                      0x80, 0x30, 0x00, 0x00,
+                      0x55, 0x55, 0x55, 0x55,
+                      0x55, 0x02, 0x33, 0x01])
+recv_buf = bytearray(100)
+
+GINT0.off()
+while GINT1.value() == 1:
+    pass
+CS.on()
+CS.off()
+vspi.write(send_buf)
+CS.on()
+
+while GINT1.value() == 1:
+    pass
+CS.on()
+CS.off()
+vspi.readinto(recv_buf)
+CS.on()
+print_bytes_hex(recv_buf)

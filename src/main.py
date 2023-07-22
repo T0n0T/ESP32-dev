@@ -27,20 +27,22 @@ Write_User_Data = const(0x80)
 Read_User_Data = const(0x81)
 
 
+def print_bytes_hex(data):
+    lin = ['0x%02X' % i for i in data]
+    print(" ".join(lin))
+
+
 class SendPacket:
-    def __init__(self, use_crc32, data, command):
+    def __init__(self, use_crc32, data, recv_lenth, command):
         self.pack = b''
         # header
-        self.pack += struct.pack('I', 0x33100253)
+        self.pack += struct.pack('<I', 0x33100253)
 
         # data_length
-        if data == None:
-            self.pack += struct.pack('I', 0)
-        else:
-            self.pack += struct.pack('I', len(data))
+        self.pack += struct.pack('<I', recv_lenth)
 
         # command
-        self.pack += struct.pack('I', command)
+        self.pack += command
 
         # reserve
         self.pack += struct.pack('I', 0x55555555)
@@ -85,49 +87,52 @@ class RecvPacket:
 
 
 class CCM3310:
-    def execute(self, cla, ins, p1, p2):
+    def littlechat(self, send_buf, recv_lenth):
+        pass
+
+    def largechat(self, lenth):
+        pass
+
+    def execute(self, cla, ins, p1, p2, recv_lenth):
         cmd = self.makecmd(cla, ins, p1, p2)
+        send_pack = bytes()
         if cla == 0x80:
-            send_pack = SendPacket(False, None, cmd).raw()
+            send_pack = SendPacket(False, None, recv_lenth, cmd).raw()
         elif cla == 0x81:
-            send_pack = SendPacket(True, None, cmd).raw()
+            send_pack = SendPacket(True, None, recv_lenth, cmd).raw()
 
-        recv_pack = self.write2read(send_pack)
-        # self.read(len(send_pack))
-        r = RecvPacket(recv_pack)
-        print(r.raw())
-        print(r.get_status())
-        print(r.get_data())
+        recv_pack = self.littlechat(send_pack, 100)
+        print_bytes_hex(recv_pack)
+        # r = RecvPacket(recv_pack)
+        # print(r.raw())
 
-    def write_data(self, cla, off, write_len, data):
+    def write_data(self, cla, off, write_len, data, recv_lenth):
         cmd = self.makecmd(cla, Write_User_Data, 0x00, 0x00)
         b = struct.pack('<II', off, write_len)
         b += data
+        send_pack = bytes()
         if cla == 0x80:
-            send_pack = SendPacket(False, b, cmd).raw()
+            send_pack = SendPacket(False, b, recv_lenth, cmd).raw()
         elif cla == 0x81:
-            send_pack = SendPacket(True, b, cmd).raw()
-        recv_pack = bytearray(len(send_pack))
-        self.write2read(send_pack, recv_pack)
+            send_pack = SendPacket(True, b, recv_lenth, cmd).raw()
+
+        recv_pack = self.littlechat(send_pack, len(send_pack))
         r = RecvPacket(recv_pack)
 
-    def read_data(self, cla, off, read_len):
+    def read_data(self, cla, off, read_len, recv_lenth):
         cmd = self.makecmd(cla, Read_User_Data, 0x00, 0x00)
         b = struct.pack('<II', off, read_len)
+        send_pack = bytes()
         if cla == 0x80:
-            send_pack = SendPacket(False, b, cmd).raw()
+            send_pack = SendPacket(False, b, recv_lenth, cmd).raw()
         elif cla == 0x81:
-            send_pack = SendPacket(True, b, cmd).raw()
-        recv_pack = bytearray(len(send_pack))
-        self.write2read(send_pack, recv_pack)
+            send_pack = SendPacket(True, b, recv_lenth, cmd).raw()
+
+        recv_pack = self.littlechat(send_pack, len(send_pack))
         r = RecvPacket(recv_pack)
 
     def makecmd(self, cls, ins, p1, p2):
-        cmd = 0x00000000
-        cmd |= cls
-        cmd = cmd << 8 | ins
-        cmd = cmd << 8 | p1
-        cmd = cmd << 8 | p2
+        cmd = struct.pack('BBBB', cls, ins, p1, p2)
         return cmd
 
 
@@ -136,7 +141,11 @@ class SPI_CCM3310(CCM3310):
         self.baudrate = baudrate
         self.CPOL = 1
         self.CPHA = 1
-        self.cs = Pin(5, Pin.OUT, value=1)
+
+        self.POR = Pin(33, Pin.OUT, value=0)
+        self.GINT0 = Pin(14, Pin.OUT, value=1)
+        self.GINT1 = Pin(32, Pin.IN)
+        self.CS = Pin(5, Pin.OUT, value=1)
         self.spi = SPI(
             2,
             baudrate=self.baudrate,
@@ -148,30 +157,26 @@ class SPI_CCM3310(CCM3310):
             mosi=Pin(23),
             miso=Pin(19),
         )
+        self.POR.on()
 
-    def write(self, data):
-        self.cs.on()
-        self.cs.off()
-        self.spi.write(data)
-        self.cs.on()
+    def littlechat(self, send_buf, recv_lenth):
+        self.CS.on()
+        self.CS.off()
+        self.GINT0.off()
+        while self.GINT1.value() == 1:
+            pass
+        self.spi.write(send_buf)
+        self.CS.on()
 
-    def read(self, lenth):
-        buf = bytearray(lenth)
-        self.cs.on()
-        self.cs.off()
-        self.spi.readinto(buf)
-        self.cs.on()
-        return buf
-
-    def write2read(self, data):
-        buf = bytearray(len(data))
-        self.cs.on()
-        self.cs.off()
-        self.spi.write_readinto(data, buf)
-        self.cs.on()
-        return buf
+        while self.GINT1.value() == 1:
+            pass
+        self.CS.on()
+        self.CS.off()
+        recv_buf = self.spi.read(recv_lenth)
+        self.CS.on()
+        return recv_buf
 
 
 if __name__ == "__main__":
     dev = SPI_CCM3310(1000000)
-    dev.execute(0x80, 0x30, 0x00, 0x00)
+    dev.execute(0x80, 0x30, 0x00, 0x00, 80)
