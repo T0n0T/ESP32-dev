@@ -45,17 +45,17 @@ class SendPacket:
         self.pack += command
 
         # reserve
-        self.pack += struct.pack('I', 0x55555555)
+        self.pack += struct.pack('<I', 0x55555555)
         # data
         if data != None:
             self.pack += data
 
         # footer
-        self.pack += struct.pack('I', 0x01330255)
+        self.pack += struct.pack('<I', 0x01330255)
 
         # crc32
         if use_crc32:
-            self.pack += struct.pack('I', ubinascii.crc32(self.pack))
+            self.pack += struct.pack('<I', ubinascii.crc32(self.pack))
 
     def raw(self):
         return self.pack
@@ -68,9 +68,11 @@ class RecvPacket:
         self.data_length = struct.unpack('<I', data[4:8])[0]
         self.status_byte = struct.unpack('<H', data[8:10])[0]
         self.reserved = struct.unpack('<6s', data[10:16])[0]
-        self.data = data[16:-8]
-        self.packet_footer = struct.unpack('<I', data[-8:-4])[0]
-        self.crc32_checksum = struct.unpack('<I', data[-4:])[0]
+        self.data = data[16:16+self.data_length]
+        self.packet_footer = struct.unpack(
+            '<I', data[16+self.data_length:20+self.data_length])[0]
+        self.crc32_checksum = struct.unpack(
+            '<I', data[20+self.data_length:24+self.data_length])[0]
 
     def validate_crc32(self):
         calculated_crc32 = ubinascii.crc32(self.data)
@@ -101,7 +103,7 @@ class CCM3310:
         elif cla == 0x81:
             send_pack = SendPacket(True, None, recv_lenth, cmd).raw()
 
-        recv_pack = self.littlechat(send_pack, 100)
+        recv_pack = self.littlechat(send_pack, recv_lenth)
         print_bytes_hex(recv_pack)
         # r = RecvPacket(recv_pack)
         # print(r.raw())
@@ -178,5 +180,37 @@ class SPI_CCM3310(CCM3310):
 
 
 if __name__ == "__main__":
-    dev = SPI_CCM3310(1000000)
-    dev.execute(0x80, 0x30, 0x00, 0x00, 80)
+    # dev = SPI_CCM3310(1000000)
+    # dev.execute(0x80, 0x30, 0x00, 0x00, 80)
+    r = RecvPacket(bytearray([
+        0x52, 0x02, 0x10, 0x33,
+        # 数据长度
+        0x50, 0x00, 0x00, 0x00,
+        # 状态字
+        0x00, 0x90,
+        0x5A, 0x5A, 0x5A, 0x5A, 0x5A, 0x5A,
+        # 数据区
+        0x43, 0x43, 0x4d, 0x33,
+        0x33, 0x31, 0x30, 0x53,
+        0x2d, 0x54, 0x20, 0x53,
+        0x50, 0x49, 0x20, 0x41,
+        0x4c, 0x47, 0x4f, 0x20,
+        0x43, 0x4f, 0x53, 0x20,
+        0x56, 0x31, 0x2e, 0x33,
+        0x30, 0x20, 0x32, 0x30,
+        0x31, 0x39, 0x2e, 0x31,
+        0x31, 0x2e, 0x32, 0x36,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x43, 0x43, 0x4d, 0x33,
+        0x33, 0x31, 0x30, 0x53,
+        0x2d, 0x54, 0x20, 0x51,
+        0x46, 0x4e, 0x33, 0x32,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        # 包尾
+        0x56, 0x02, 0x33, 0x01
+    ]))
+    print(r.data)
