@@ -12,12 +12,12 @@ class RecvPacket:
         self.data = data[16:16+self.data_length]
         self.packet_footer = struct.unpack(
             '<I', data[16+self.data_length:20+self.data_length])[0]
-        self.crc32_checksum = struct.unpack(
-            '<I', data[20+self.data_length:])[0]
+        # self.crc32_checksum = struct.unpack(
+        #     '<I', data[20+self.data_length:])[0]
 
-    def validate_crc32(self):
-        calculated_crc32 = binascii.crc32(self.data)
-        return calculated_crc32 == self.crc32_checksum
+    # def validate_crc32(self):
+    #     calculated_crc32 = binascii.crc32(self.data)
+    #     return calculated_crc32 == self.crc32_checksum
 
     def get_status(self):
         return self.status_byte
@@ -63,5 +63,6 @@ if __name__ == "__main__":
         # 包尾
         0x56, 0x02, 0x33, 0x01
     ])
+    r = RecvPacket(data)
 
-    print(struct.unpack('<I', data[4:8])[0])
+    print(r.data)
