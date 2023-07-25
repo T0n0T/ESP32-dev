@@ -62,7 +62,7 @@ class CCM3310_SendPacket:
 
 
 class CCM3310_RecvPacket:
-    def __init__(self, data):
+    def __init__(self, use_crc32: bool, data: bytes):
         self.packet_header = struct.unpack('<I', data[:4])[0]
         self.data_length = struct.unpack('<I', data[4:8])[0]
         self.status_byte = struct.unpack('<H', data[8:10])[0]
@@ -70,8 +70,9 @@ class CCM3310_RecvPacket:
         self.data = data[16:16+self.data_length]
         self.packet_footer = struct.unpack(
             '<I', data[16+self.data_length:20+self.data_length])[0]
-        self.crc32_checksum = struct.unpack(
-            '<I', data[20+self.data_length:24+self.data_length])[0]
+        if use_crc32:
+            self.crc32_checksum = struct.unpack(
+                '<I', data[20+self.data_length:24+self.data_length])[0]
 
     def validate_crc32(self) -> bool:
         calculated_crc32 = ubinascii.crc32(self.data)
@@ -95,7 +96,7 @@ class CCM3310:
         send_pack = CCM3310_SendPacket(
             False, cmd, None, 80).release()
         recv = self.littlechat(send_pack, 100)
-        return CCM3310_RecvPacket(recv).release().decode('utf-8')
+        return CCM3310_RecvPacket(False, bytes(recv)).release().decode('utf-8')
 
     def execute(self, cla: int, ins: int, p1: int, p2: int, data: bytes, recv_lenth: int) -> bytes:
         cmd = struct.pack('BBBB', cla, ins, p1, p2)
@@ -107,8 +108,8 @@ class CCM3310:
             send_pack = CCM3310_SendPacket(
                 True, cmd, data, len(data)).release()
 
-        recv_pack = self.littlechat(send_pack, recv_lenth)
-        return bytes(recv_pack)
+        recv = self.littlechat(send_pack, recv_lenth)
+        return CCM3310_RecvPacket(False, bytes(recv)).release()
 
 
 class SPI_CCM3310(CCM3310):
