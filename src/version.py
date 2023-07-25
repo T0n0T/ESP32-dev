@@ -1,68 +1,48 @@
-import struct
-import binascii
+from machine import Pin, SPI
 
 
-class RecvPacket:
-    def __init__(self, data):
-        self.o = data
-        self.packet_header = struct.unpack('<I', data[:4])[0]
-        self.data_length = struct.unpack('<I', data[4:8])[0]
-        self.status_byte = struct.unpack('<H', data[8:10])[0]
-        self.reserved = struct.unpack('<6s', data[10:16])[0]
-        self.data = data[16:16+self.data_length]
-        self.packet_footer = struct.unpack(
-            '<I', data[16+self.data_length:20+self.data_length])[0]
-        # self.crc32_checksum = struct.unpack(
-        #     '<I', data[20+self.data_length:])[0]
-
-    # def validate_crc32(self):
-    #     calculated_crc32 = binascii.crc32(self.data)
-    #     return calculated_crc32 == self.crc32_checksum
-
-    def get_status(self):
-        return self.status_byte
-
-    def get_data(self):
-        return self.data
-
-    def raw(self):
-        return self.o
+def print_bytes_hex(data):
+    lin = ['0x%02X' % i for i in data]
+    print(" ".join(lin))
 
 
-if __name__ == "__main__":
-    # dev = SPI_CCM3310(1000000)
-    # dev.execute(0x80, 0x30, 0x00, 0x00, 80)
-    data = bytearray([
-        0x52, 0x02, 0x10, 0x33,
-        # 数据长度
-        0x50, 0x00, 0x00, 0x00,
-        # 状态字
-        0x00, 0x90,
-        0x5A, 0x5A, 0x5A, 0x5A, 0x5A, 0x5A,
-        # 数据区
-        0x43, 0x43, 0x4d, 0x33,
-        0x33, 0x31, 0x30, 0x53,
-        0x2d, 0x54, 0x20, 0x53,
-        0x50, 0x49, 0x20, 0x41,
-        0x4c, 0x47, 0x4f, 0x20,
-        0x43, 0x4f, 0x53, 0x20,
-        0x56, 0x31, 0x2e, 0x33,
-        0x30, 0x20, 0x32, 0x30,
-        0x31, 0x39, 0x2e, 0x31,
-        0x31, 0x2e, 0x32, 0x36,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x43, 0x43, 0x4d, 0x33,
-        0x33, 0x31, 0x30, 0x53,
-        0x2d, 0x54, 0x20, 0x51,
-        0x46, 0x4e, 0x33, 0x32,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        # 包尾
-        0x56, 0x02, 0x33, 0x01
-    ])
-    r = RecvPacket(data)
+POR = Pin(33, Pin.OUT, value=0)
+GINT0 = Pin(14, Pin.OUT, value=1)
+GINT1 = Pin(32, Pin.IN)
+CS = Pin(5, Pin.OUT, value=1)
 
-    print(r.data)
+vspi = SPI(
+    2,
+    baudrate=1000000,
+    polarity=1,
+    phase=1,
+    bits=8,
+    firstbit=SPI.MSB,
+    sck=Pin(18),
+    mosi=Pin(23),
+    miso=Pin(19),
+)
+POR.on()
+
+send_buf = bytearray([0x53, 0x02, 0x10, 0x33,
+                      0x50, 0x00, 0x00, 0x00,
+                      0x80, 0x30, 0x00, 0x00,
+                      0x55, 0x55, 0x55, 0x55,
+                      0x55, 0x02, 0x33, 0x01])
+recv_buf = bytearray(100)
+
+GINT0.off()
+while GINT1.value() == 1:
+    pass
+CS.on()
+CS.off()
+vspi.write(send_buf)
+CS.on()
+
+while GINT1.value() == 1:
+    pass
+CS.on()
+CS.off()
+vspi.readinto(recv_buf)
+CS.on()
+print_bytes_hex(recv_buf)

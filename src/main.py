@@ -18,7 +18,7 @@ SM2_Sign = const(0x60)
 SM2_Verify = const(0x62)
 SM2_Encrypt = const(0x64)
 SM2_Decrypt = const(0x66)
-SM2_PriKey_Gen_PubKey = const(0x68)
+
 
 SM2_Import_Sym_Key = const(0x73)
 
@@ -32,14 +32,14 @@ def print_bytes_hex(data):
     print(" ".join(lin))
 
 
-class SendPacket:
-    def __init__(self, use_crc32, data, recv_lenth, command):
+class CCM3310_SendPacket:
+    def __init__(self, use_crc32, command, data, data_len):
         self.pack = b''
         # header
         self.pack += struct.pack('<I', 0x33100253)
 
         # data_length
-        self.pack += struct.pack('<I', recv_lenth)
+        self.pack += struct.pack('<I', data_len)
 
         # command
         self.pack += command
@@ -57,13 +57,12 @@ class SendPacket:
         if use_crc32:
             self.pack += struct.pack('<I', ubinascii.crc32(self.pack))
 
-    def raw(self):
-        return self.pack
+    def release(self) -> bytearray:
+        return bytearray(self.pack)
 
 
-class RecvPacket:
+class CCM3310_RecvPacket:
     def __init__(self, data):
-        self.o = data
         self.packet_header = struct.unpack('<I', data[:4])[0]
         self.data_length = struct.unpack('<I', data[4:8])[0]
         self.status_byte = struct.unpack('<H', data[8:10])[0]
@@ -74,18 +73,14 @@ class RecvPacket:
         self.crc32_checksum = struct.unpack(
             '<I', data[20+self.data_length:24+self.data_length])[0]
 
-    def validate_crc32(self):
+    def validate_crc32(self) -> bool:
         calculated_crc32 = ubinascii.crc32(self.data)
         return calculated_crc32 == self.crc32_checksum
 
-    def get_status(self):
-        return self.status_byte
-
-    def get_data(self):
-        return self.data
-
-    def raw(self):
-        return self.o
+    def release(self) -> bytes:
+        if (self.status_byte != 0x9000) or (self.packet_header != 0x33100252) or (self.packet_footer != 0x01330256):
+            return bytes(0)
+        return bytes(self.data)
 
 
 class CCM3310:
@@ -95,47 +90,25 @@ class CCM3310:
     def largechat(self, lenth):
         pass
 
-    def execute(self, cla, ins, p1, p2, recv_lenth):
-        cmd = self.makecmd(cla, ins, p1, p2)
+    def version(self) -> str:
+        cmd = struct.pack('BBBB', 0x80, 0x30, 0x00, 0x00)
+        send_pack = CCM3310_SendPacket(
+            False, cmd, None, 80).release()
+        recv = self.littlechat(send_pack, 100)
+        return CCM3310_RecvPacket(recv).release().decode('utf-8')
+
+    def execute(self, cla: int, ins: int, p1: int, p2: int, data: bytes, recv_lenth: int) -> bytes:
+        cmd = struct.pack('BBBB', cla, ins, p1, p2)
         send_pack = bytes()
         if cla == 0x80:
-            send_pack = SendPacket(False, None, recv_lenth, cmd).raw()
+            send_pack = CCM3310_SendPacket(
+                False, cmd, data, len(data)).release()
         elif cla == 0x81:
-            send_pack = SendPacket(True, None, recv_lenth, cmd).raw()
+            send_pack = CCM3310_SendPacket(
+                True, cmd, data, len(data)).release()
 
         recv_pack = self.littlechat(send_pack, recv_lenth)
-        print_bytes_hex(recv_pack)
-        # r = RecvPacket(recv_pack)
-        # print(r.raw())
-
-    def write_data(self, cla, off, write_len, data, recv_lenth):
-        cmd = self.makecmd(cla, Write_User_Data, 0x00, 0x00)
-        b = struct.pack('<II', off, write_len)
-        b += data
-        send_pack = bytes()
-        if cla == 0x80:
-            send_pack = SendPacket(False, b, recv_lenth, cmd).raw()
-        elif cla == 0x81:
-            send_pack = SendPacket(True, b, recv_lenth, cmd).raw()
-
-        recv_pack = self.littlechat(send_pack, len(send_pack))
-        r = RecvPacket(recv_pack)
-
-    def read_data(self, cla, off, read_len, recv_lenth):
-        cmd = self.makecmd(cla, Read_User_Data, 0x00, 0x00)
-        b = struct.pack('<II', off, read_len)
-        send_pack = bytes()
-        if cla == 0x80:
-            send_pack = SendPacket(False, b, recv_lenth, cmd).raw()
-        elif cla == 0x81:
-            send_pack = SendPacket(True, b, recv_lenth, cmd).raw()
-
-        recv_pack = self.littlechat(send_pack, len(send_pack))
-        r = RecvPacket(recv_pack)
-
-    def makecmd(self, cls, ins, p1, p2):
-        cmd = struct.pack('BBBB', cls, ins, p1, p2)
-        return cmd
+        return bytes(recv_pack)
 
 
 class SPI_CCM3310(CCM3310):
@@ -180,37 +153,5 @@ class SPI_CCM3310(CCM3310):
 
 
 if __name__ == "__main__":
-    # dev = SPI_CCM3310(1000000)
-    # dev.execute(0x80, 0x30, 0x00, 0x00, 80)
-    r = RecvPacket(bytearray([
-        0x52, 0x02, 0x10, 0x33,
-        # 数据长度
-        0x50, 0x00, 0x00, 0x00,
-        # 状态字
-        0x00, 0x90,
-        0x5A, 0x5A, 0x5A, 0x5A, 0x5A, 0x5A,
-        # 数据区
-        0x43, 0x43, 0x4d, 0x33,
-        0x33, 0x31, 0x30, 0x53,
-        0x2d, 0x54, 0x20, 0x53,
-        0x50, 0x49, 0x20, 0x41,
-        0x4c, 0x47, 0x4f, 0x20,
-        0x43, 0x4f, 0x53, 0x20,
-        0x56, 0x31, 0x2e, 0x33,
-        0x30, 0x20, 0x32, 0x30,
-        0x31, 0x39, 0x2e, 0x31,
-        0x31, 0x2e, 0x32, 0x36,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x43, 0x43, 0x4d, 0x33,
-        0x33, 0x31, 0x30, 0x53,
-        0x2d, 0x54, 0x20, 0x51,
-        0x46, 0x4e, 0x33, 0x32,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        # 包尾
-        0x56, 0x02, 0x33, 0x01
-    ]))
-    print(r.data)
+    dev = SPI_CCM3310(1000000)
+    print(dev.version())
